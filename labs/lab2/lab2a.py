@@ -33,13 +33,19 @@ CROP_FLOOR = ((360, 0), (rc.camera.get_height(), rc.camera.get_width()))
 
 # Colors, stored as a pair (hsv_min, hsv_max)
 BLUE = ((90, 50, 50), (120, 255, 255))  # The HSV range for the color blue
-# TODO (challenge 1): add HSV ranges for other colors
+GREEN = ((70, 137, 105), (80, 255, 168))  # The HSV range for the color green
 
 # >> Variables
 speed = 0.0  # The current speed of the car
 angle = 0.0  # The current angle of the car's wheels
 contour_center = None  # The (pixel row, pixel column) of contour
 contour_area = 0  # The area of contour
+Kp = 1
+Ki = 0.01
+Kd = 0.5
+olderror = 0
+
+priority_list = ["RED", "BLUE", "GREEN"]
 
 ########################################################################################
 # Functions
@@ -67,10 +73,34 @@ def update_contour():
         image = rc_utils.crop(image, CROP_FLOOR[0], CROP_FLOOR[1])
 
         # Find all of the blue contours
-        contours = rc_utils.find_contours(image, BLUE[0], BLUE[1])
+        blue_contours = rc_utils.find_contours(image, BLUE[0], BLUE[1])
+
+        # Find all of the green contours
+        green_contours = rc_utils.find_contours(image, GREEN[0], GREEN[1])
+
+        # Find all of the red contours
+        red_contours = rc_utils.find_contours(cv.bitwise_not(image), BLUE[0], BLUE[1])
+
+        contour = None
+
+        for priority in priority_list:
+            if priority == "BLUE":
+                candidate = rc_utils.get_largest_contour(
+                    blue_contours, MIN_CONTOUR_AREA
+                )
+            elif priority == "GREEN":
+                candidate = rc_utils.get_largest_contour(
+                    green_contours, MIN_CONTOUR_AREA
+                )
+            elif priority == "RED":
+                candidate = rc_utils.get_largest_contour(red_contours, MIN_CONTOUR_AREA)
+
+            if candidate is not None:
+                contour = candidate
+                break
 
         # Select the largest contour
-        contour = rc_utils.get_largest_contour(contours, MIN_CONTOUR_AREA)
+        # contour = rc_utils.get_largest_contour(contours, MIN_CONTOUR_AREA)
 
         if contour is not None:
             # Calculate contour information
@@ -125,6 +155,7 @@ def update():
     """
     global speed
     global angle
+    global olderror
 
     # Search for contours in the current color image
     update_contour()
@@ -132,17 +163,44 @@ def update():
     # Choose an angle based on contour_center
     # If we could not find a contour, keep the previous angle
     if contour_center is not None:
-        # Current implementation: bang-bang control (very choppy)
-        # TODO (warmup): Implement a smoother way to follow the line
-        if contour_center[1] < rc.camera.get_width() / 2:
-            angle = -1
-        else:
-            angle = 1
+        dt = rc.get_delta_time()
 
-    # Use the triggers to control the car's speed
-    forwardSpeed = rc.controller.get_trigger(rc.controller.Trigger.RIGHT)
-    backSpeed = rc.controller.get_trigger(rc.controller.Trigger.LEFT)
-    speed = forwardSpeed - backSpeed
+        # PID control
+        error = (contour_center[1] - rc.camera.get_width() // 2) / (
+            rc.camera.get_width() // 2
+        )
+
+        derror = (error - olderror) / dt
+
+        ierror = olderror + error * dt
+
+        olderror = error
+        angle = np.clip(error * Kp + derror * Kd + ierror * Ki, -1, 1)
+    else:
+        olderror = 0
+
+    print(angle)
+
+    # No speed control - messes with PID
+
+    if rc.controller.get_trigger(rc.controller.Trigger.RIGHT):
+        if rc.controller.get_trigger(rc.controller.Trigger.LEFT):
+            speed = 0
+        else:
+            speed = 0.7
+    elif rc.controller.get_trigger(rc.controller.Trigger.LEFT):
+        speed = -0.7
+        angle = -angle
+    else:
+        speed = 0
+
+    a = rc.controller.get_joystick(rc.controller.Joystick.LEFT)[0]
+    if abs(a) > 0.05:
+        angle = a  # joystick override
+
+    # forwardSpeed = rc.controller.get_trigger(rc.controller.Trigger.RIGHT)
+    # backSpeed = rc.controller.get_trigger(rc.controller.Trigger.LEFT)
+    # speed = forwardSpeed - backSpeed
 
     rc.drive.set_speed_angle(speed, angle)
 
@@ -159,6 +217,7 @@ def update():
 
 
 def update_slow():
+    return
     """
     After start() is run, this function is run at a constant rate that is slower
     than update().  By default, update_slow() is run once per second

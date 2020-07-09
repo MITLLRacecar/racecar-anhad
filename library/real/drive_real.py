@@ -56,7 +56,7 @@ class DriveReal(Drive):
         )
 
         self.__message.drive.steering_angle = rc_utils.remap_range(
-            angle, -1.0, 1.0, self.__PWM_TURN_LEFT, self.__PWM_TURN_RIGHT,
+            -angle, -1.0, 1.0, self.__PWM_TURN_LEFT, self.__PWM_TURN_RIGHT,
         )
 
     def set_max_speed(self, max_speed: float = 0.25) -> None:
