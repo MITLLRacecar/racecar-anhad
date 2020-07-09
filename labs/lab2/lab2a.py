@@ -33,19 +33,19 @@ CROP_FLOOR = ((360, 0), (rc.camera.get_height(), rc.camera.get_width()))
 
 # Colors, stored as a pair (hsv_min, hsv_max)
 BLUE = ((90, 50, 50), (120, 255, 255))  # The HSV range for the color blue
-GREEN = ((70, 137, 105), (80, 255, 168))  # The HSV range for the color green
+GREEN = ((70, 137, 105), (80, 255, 255))  # The HSV range for the color green
 
 # >> Variables
 speed = 0.0  # The current speed of the car
 angle = 0.0  # The current angle of the car's wheels
 contour_center = None  # The (pixel row, pixel column) of contour
 contour_area = 0  # The area of contour
-Kp = 1
-Ki = 0.01
+Kp = 0.8
+Ki = 0.1
 Kd = 0.5
 olderror = 0
 
-priority_list = ["RED", "BLUE", "GREEN"]
+priority_list = ["GREEN", "RED", "BLUE"]
 
 ########################################################################################
 # Functions
@@ -179,17 +179,15 @@ def update():
     else:
         olderror = 0
 
-    print(angle)
-
     # No speed control - messes with PID
 
     if rc.controller.get_trigger(rc.controller.Trigger.RIGHT):
         if rc.controller.get_trigger(rc.controller.Trigger.LEFT):
             speed = 0
         else:
-            speed = 0.7
+            speed = 0.6
     elif rc.controller.get_trigger(rc.controller.Trigger.LEFT):
-        speed = -0.7
+        speed = -0.6
         angle = -angle
     else:
         speed = 0
@@ -217,7 +215,6 @@ def update():
 
 
 def update_slow():
-    return
     """
     After start() is run, this function is run at a constant rate that is slower
     than update().  By default, update_slow() is run once per second
