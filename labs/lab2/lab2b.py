@@ -13,10 +13,12 @@ Lab 2B - Color Image Cone Parking
 import sys
 import cv2 as cv
 import numpy as np
+from enum import IntEnum
 
 sys.path.insert(1, "../../library")
 import racecar_core
 import racecar_utils as rc_utils
+import pidcontroller
 
 ########################################################################################
 # Global variables
@@ -27,6 +29,17 @@ rc = racecar_core.create_racecar()
 # >> Constants
 # The smallest contour we will recognize as a valid contour
 MIN_CONTOUR_AREA = 30
+CENTER_THRESHHOLD = 20
+AREA_THRESHHOLD = 2000
+TARGET_AREA = 22000
+
+
+class State(IntEnum):
+    Wandering = 1
+    Go_To_Cone = 2
+    Stop = 3
+    Move_Backwards = 4
+
 
 # The HSV range for the color orange, stored as (hsv_min, hsv_max)
 ORANGE = ((10, 100, 100), (20, 255, 255))
@@ -36,6 +49,9 @@ speed = 0.0  # The current speed of the car
 angle = 0.0  # The current angle of the car's wheels
 contour_center = None  # The (pixel row, pixel column) of contour
 contour_area = 0  # The area of contour
+counter = 0
+currentState = State.Wandering
+Angle_PID = pidcontroller.PID(0.8, 0.1, 0.5)
 
 ########################################################################################
 # Functions
@@ -85,10 +101,13 @@ def start():
     """
     global speed
     global angle
+    global currentState
 
     # Initialize variables
     speed = 0
     angle = 0
+    counter = 0
+    currentState = State.Wandering
 
     # Set initial driving speed and angle
     rc.drive.set_speed_angle(speed, angle)
@@ -107,11 +126,67 @@ def update():
     """
     global speed
     global angle
+    global currentState
+    global counter
 
     # Search for contours in the current color image
     update_contour()
 
     # TODO: Park the car 30 cm away from the closest orange cone
+
+    # FSM
+    if currentState == State.Wandering:
+        speed = 1
+        angle = 1 - counter / 10
+        if angle < 0.1:
+            angle = 0.1
+        if contour_center is not None:
+            if contour_area > TARGET_AREA:
+                counter = 0
+                currentState = State.Move_Backwards
+            else:
+                currentState = State.Go_To_Cone
+    if currentState == State.Go_To_Cone:  # cone is in sight
+        if contour_center is None:  # cone dissapeared
+            counter = 0
+            currentState = State.Wandering
+        elif abs(contour_area - TARGET_AREA) < AREA_THRESHHOLD:  # cone 30cm away
+            currentState = State.Stop
+        elif contour_area > TARGET_AREA:  # cone too close
+            counter = 0
+            currentState = State.Move_Backwards
+        else:
+            error = (contour_center[1] - rc.camera.get_width() // 2) / (
+                rc.camera.get_width() // 2
+            )
+            angle = np.clip(Angle_PID.update(error, rc.get_delta_time()), -1, 1)
+            speed = 0.6
+    if currentState == State.Stop:
+        speed = 0
+        angle = 0
+        if contour_center is None:  # cone dissapeared
+            currentState = State.Wandering
+        elif abs(contour_area - TARGET_AREA) > AREA_THRESHHOLD:  # cone moved
+            if contour_area > TARGET_AREA:
+                counter = 0
+                currentState = State.Move_Backwards
+            else:
+                currentState = State.Go_To_Cone
+    if currentState == State.Move_Backwards:  # move backwards
+        if contour_center is None:
+            counter = 0
+            currentState = State.Wandering
+        else:
+            if abs(contour_area - TARGET_AREA) < AREA_THRESHHOLD:
+                currentState = State.Stop
+            elif contour_area > TARGET_AREA:
+                speed = -1
+                angle = 0
+            else:
+                currentState = State.Go_To_Cone
+
+    counter += rc.get_delta_time()
+    rc.drive.set_speed_angle(speed, angle)
 
     # Print the current speed and angle when the A button is held down
     if rc.controller.is_down(rc.controller.Button.A):
@@ -137,13 +212,15 @@ def update_slow():
     else:
         # If an image is found but no contour is found, print all dashes
         if contour_center is None:
-            print("-" * 32 + " : area = " + str(contour_area))
+            print("-" * 32 + " : area = " + str(contour_area), " State:", currentState)
 
         # Otherwise, print a line of dashes with a | indicating the contour x-position
         else:
             s = ["-"] * 32
             s[int(contour_center[1] / 20)] = "|"
-            print("".join(s) + " : area = " + str(contour_area))
+            print(
+                "".join(s) + " : area = " + str(contour_area), " State:", currentState
+            )
 
 
 ########################################################################################
