@@ -1,35 +1,49 @@
-#TODO: Unfinished
-
 import pidcontroller
+import numpy as np
 
-class SpeedAnglePID:
+# Doesnt work, don't use
+
+
+class SA_PID:
     """PID Controller """
 
-    def __init__(self, xP=0.0, xI=0.0, xD=0.0, yP=0.0, yI=0.0, yD=0.0, racecar):
+    def __init__(self, xP, xI, xD, yP, yI, yD, racecar):
         self.Speed_PID = pidcontroller.PID(xP, xI, xD)
         self.Angle_PID = pidcontroller.PID(yP, yI, yD)
         self.racecar = racecar
         self.speed = 0
         self.angle = 0
-        self.targetX = self.racecar.camera.get_width() // 2
-        self.targetY = self.racecar.camera.get_height() // 2
+        self.setTarget(self.racecar.camera.get_width() // 2)
+        self.setTargetDist(0)
 
-    def update(self, currentX, currentY, dt): #assumes current and target are pixels on screen
+    def update(
+        self, currentX, currentDist, overrideSpeed=0.0
+    ):  # assumes current and target are pixels on screen
         """Calculates PID values for speed and angle
         """
-        errorX = (currentX - targetX) / (racecar.camera.get_width() // 2)
-        errorY = (currentY - targetY) / (racecar.camera.get_height() // 2)
+        errorX = (currentX - self.targetX) / (self.racecar.camera.get_width() // 2)
+        errorD = currentDist - self.targetDist
 
         dt = self.racecar.get_delta_time()
 
-        self.speed = self.Speed_PID.update(errorY, dt)
-        self.angle = self.Angle_PID.update(errorX, dt, Self.speed)
+        if overrideSpeed == 0:
+            self.speed = np.clip(self.Speed_PID.update(errorD, dt), -1, 1)
+        else:
+            self.speed = np.clip(overrideSpeed, -1, 1)
+
+        if self.speed >= 0:
+            self.angle = np.clip(
+                self.Angle_PID.update(errorX, dt, 1 - 0.3 * self.speed), -1, 1
+            )
+        elif self.speed < 0:
+            self.angle = np.clip(
+                self.Angle_PID.update(errorX, dt, -1 - 0.3 * self.speed), -1, 1
+            )
 
         return (self.speed, self.angle)
 
-    def commit(self):
-        self.racecar.drive.set_speed_angle(self.speed, self.angle)
-
-    def setTarget(self, x, y):
+    def setTarget(self, x):
         self.targetX = x
-        self.targetY = y
+
+    def setTargetDist(self, d):
+        self.targetDist = d

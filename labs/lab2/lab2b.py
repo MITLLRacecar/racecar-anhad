@@ -51,7 +51,7 @@ contour_center = None  # The (pixel row, pixel column) of contour
 contour_area = 0  # The area of contour
 counter = 0
 currentState = State.Wandering
-Angle_PID = pidcontroller.PID(0.8, 0.1, 0.5)
+PID = pidcontroller.PID(0.8, 0.1, 0.5)
 
 ########################################################################################
 # Functions

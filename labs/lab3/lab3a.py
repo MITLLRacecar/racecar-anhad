@@ -81,7 +81,7 @@ def start():
     )
 
 
-def speedEstimator(depth_image):
+def floorRemoval(depth_image):
     height, width = np.shape(depth_image)
     maxv = np.max(depth_image)
     if maxv == 0:
@@ -94,8 +94,8 @@ def speedEstimator(depth_image):
     mostzeros = 0
     brightness_adjusted = np.zeros_like(empty_image)
 
-    for y in range(0, 20):
-        for z in range(-10, 10):
+    for y in range(5, 15):
+        for z in range(-5, 5):
             brightness_adjusted[41:] = np.clip(empty_image[41:] + z, 0, 255)
             object_depth = np.copy(scaled_image)
             object_depth[
@@ -110,6 +110,9 @@ def speedEstimator(depth_image):
                 mostzeros = candidate
                 shift_y = y
                 shift_z = z
+
+    # shift_y = 10
+    # shift_z = 0
 
     brightness_adjusted[41:] = np.clip(empty_image[41:] + shift_z, 0, 255)
     mostzeros = -1
@@ -177,8 +180,9 @@ def update():
 
     # Calculate the distance of the object directly in front of the car
     depth_image = rc.camera.get_depth_image()[::8, ::8]
+    depth_image = floorRemoval(depth_image)
     # TODO: REMOVE SUBSAMPLING ON IRL RACECAR
-    center_distance = 100  # rc_utils.get_depth_image_center_distance(depth_image)
+    center_distance = rc_utils.get_depth_image_center_distance(depth_image)
 
     # TODO (warmup): Prevent forward movement if the car is about to hit something.
     if center_distance < MIN_DISTANCE:
@@ -199,10 +203,8 @@ def update():
     if rc.controller.is_down(rc.controller.Button.B):
         print("Center distance:", center_distance)
 
-    object_depth = speedEstimator(depth_image)
-
     # Display the current depth image
-    rc.display.show_depth_image(object_depth)
+    rc.display.show_depth_image(depth_image)
 
     # TODO (stretch goal): Prevent forward movement if the car is about to drive off a
     # ledge.  ONLY TEST THIS IN THE SIMULATION, DO NOT TEST THIS WITH A REAL CAR.
