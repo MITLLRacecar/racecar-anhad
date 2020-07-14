@@ -31,7 +31,7 @@ rc = racecar_core.create_racecar()
 MIN_CONTOUR_AREA = 30
 CENTER_THRESHHOLD = 20
 AREA_THRESHHOLD = 2000
-TARGET_AREA = 22000
+TARGET_AREA = 26000
 
 
 class State(IntEnum):
@@ -138,8 +138,8 @@ def update():
     if currentState == State.Wandering:
         speed = 1
         angle = 1 - counter / 10
-        if angle < 0.1:
-            angle = 0.1
+        if angle < 0.4:
+            angle = 0.4
         if contour_center is not None:
             if contour_area > TARGET_AREA:
                 counter = 0
@@ -160,7 +160,7 @@ def update():
                 rc.camera.get_width() // 2
             )
             angle = np.clip(Angle_PID.update(error, rc.get_delta_time()), -1, 1)
-            speed = 0.6
+            speed = 0.5
     if currentState == State.Stop:
         speed = 0
         angle = 0
@@ -180,7 +180,7 @@ def update():
             if abs(contour_area - TARGET_AREA) < AREA_THRESHHOLD:
                 currentState = State.Stop
             elif contour_area > TARGET_AREA:
-                speed = -1
+                speed = -0.5
                 angle = 0
             else:
                 currentState = State.Go_To_Cone
