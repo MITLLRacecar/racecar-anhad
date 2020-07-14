@@ -52,12 +52,12 @@ def start():
     global empty_image
     empty_image = cv.imread("Empty.png", cv.IMREAD_GRAYSCALE)
 
-    print(empty_image[:, 40])
-    a = rc.camera.get_depth_image()[::8, ::8]
-    maxv = np.max(a)
-    a = vDistEncoder(a, maxv)
-    cv.imwrite("a.png", a)
-    print(a[::8, 40])
+    # print(empty_image[:, 40])
+    # a = rc.camera.get_depth_image()[::8, ::8]
+    # maxv = np.max(a)
+    # a = vDistEncoder(a, maxv)
+    # cv.imwrite("a.png", a)
+    # print(a[::8, 40])
 
     global LowpassFilter
     LowpassFilter = filterOnePole.Filter(
