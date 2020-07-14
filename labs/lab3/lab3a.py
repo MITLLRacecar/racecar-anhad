@@ -28,9 +28,10 @@ rc = racecar_core.create_racecar()
 # Add any global variables here
 MIN_DISTANCE = 20
 empty_image = 0
-OBJECT_THRESHHOLD = 10
+OBJECT_THRESHHOLD = 50
 CUTOFF_FREQUENCY = 20
 LowpassFilter = None
+test = 0
 ########################################################################################
 # Functions
 ########################################################################################
@@ -51,12 +52,12 @@ def start():
     global empty_image
     empty_image = cv.imread("Empty.png", cv.IMREAD_GRAYSCALE)
 
-    # print(empty_image[:, 40])
-    # a = rc.camera.get_depth_image()
-    # maxv = np.max(a)
-    # a = vDistEncoder(a, maxv)
-    # cv.imwrite("a.png", a)
-    # print(a[::8, 40])
+    print(empty_image[:, 40])
+    a = rc.camera.get_depth_image()[::8, ::8]
+    maxv = np.max(a)
+    a = vDistEncoder(a, maxv)
+    cv.imwrite("a.png", a)
+    print(a[::8, 40])
 
     global LowpassFilter
     LowpassFilter = filterOnePole.Filter(
@@ -80,10 +81,6 @@ def start():
     )
 
 
-def errorThreshholdFunction(x, maxv):
-    return x * 30.0 / maxv + 10
-
-
 def speedEstimator(depth_image):
     height, width = np.shape(depth_image)
     maxv = np.max(depth_image)
@@ -91,44 +88,60 @@ def speedEstimator(depth_image):
         maxv = 800
     scaled_image = vDistEncoder(depth_image, maxv)
 
-    shift_x = 10
+    shift_x = 0
     shift_y = 0
-    minsum = -1
+    shift_x = 20
+    mostzeros = 0
+    brightness_adjusted = np.zeros_like(empty_image)
 
     for y in range(0, 20):
-        object_depth = np.copy(scaled_image)
-        object_depth[
-            abs(object_depth - empty_image[y : height + y, shift_x : width + shift_x])
-            < OBJECT_THRESHHOLD
-        ] = 0
-        candidate = np.sum(object_depth)
-        if minsum == -1 or candidate < minsum:
-            minsum = candidate
-            shift_y = y
+        for z in range(-10, 10):
+            brightness_adjusted[41:] = np.clip(empty_image[41:] + z, 0, 255)
+            object_depth = np.copy(scaled_image)
+            object_depth[
+                abs(
+                    object_depth
+                    - brightness_adjusted[y : height + y, shift_x : width + shift_x]
+                )
+                < OBJECT_THRESHHOLD
+            ] = 0
+            candidate = np.count_nonzero(object_depth[height // 2 :] == 0)
+            if candidate > mostzeros:
+                mostzeros = candidate
+                shift_y = y
+                shift_z = z
 
-    minsum = -1
+    brightness_adjusted[41:] = np.clip(empty_image[41:] + shift_z, 0, 255)
+    mostzeros = -1
 
-    for x in range(0, 20):
+    for x in range(0, 40):
         object_depth = np.copy(scaled_image)
         object_depth[
             abs(object_depth - empty_image[shift_y : height + shift_y, x : width + x])
             < OBJECT_THRESHHOLD
         ] = 0
-        candidate = np.sum(object_depth)
-        if minsum == -1 or candidate < minsum:
+        candidate = np.count_nonzero(object_depth[height // 2 :] == 0)
+        if candidate > mostzeros:
+            mostzeros = candidate
             out = np.copy(object_depth)
-            minsum = candidate
             shift_x = x
 
+    global test
+
     if rc.controller.was_pressed(rc.controller.Button.A):
-        for i in range(0, height):
-            print(out[i, width // 2], end=" ")
+        a = rc.camera.get_depth_image()[::8, ::8]
+        maxv = np.max(a)
+        a = vDistEncoder(a, maxv)
+        cv.imwrite(str(test) + ".png", a)
+        test += 1
+        # for i in range(0, height):
+        #    print(out[i, width // 2], end=" ")
 
     lowpass = LowpassFilter.input(out, rc.get_delta_time())
     lowpass[lowpass < 1] = 0
     lowpass[out == 0] = 0
 
-    print(shift_x, " ", shift_y)
+    print(shift_x, " ", shift_y, " ", shift_z)
 
     return lowpass
 
