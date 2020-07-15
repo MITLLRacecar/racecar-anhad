@@ -38,7 +38,7 @@ class State(IntEnum):
 # The HSV range for the color orange, stored as (hsv_min, hsv_max)
 ORANGE = ((10, 100, 100), (20, 255, 255))
 
-MIN_coneDist = 30
+MIN_CONTOUR = 30
 TARGET_DIST = 30
 DIST_THRESHHOLD = 2
 PID_DIST_THRESHHOLD = 100
@@ -66,7 +66,7 @@ def getCone(color_image, depth_image):
         contours = rc_utils.find_contours(color_image, ORANGE[0], ORANGE[1])
 
         # Select the largest contour
-        contour = rc_utils.get_largest_contour(contours, MIN_coneDist)
+        contour = rc_utils.get_largest_contour(contours, MIN_CONTOUR)
 
         if contour is not None:
             # Calculate contour information

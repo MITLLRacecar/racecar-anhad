@@ -13,6 +13,7 @@ Lab 3C - Depth Camera Wall Parking
 import sys
 import cv2 as cv
 import numpy as np
+from enum import IntEnum
 
 sys.path.insert(0, "../../library")
 import racecar_core
@@ -27,34 +28,46 @@ rc = racecar_core.create_racecar()
 
 
 class State(IntEnum):
-    Wandering = 1
-    Go = 2
-    Stop = 3
+    Go = 1
+    Stop = 2
+    moveBackwards = 3
 
-MIN_coneDist = 30
-TARGET_DIST = 30
-DIST_THRESHHOLD = 2
-PID_DIST_THRESHHOLD = 100
+
+TARGET_DIST = 20
+DIST_THRESHHOLD = 1
+PID_DIST_THRESHHOLD = 60
+SLOPE_THRESHHOLD = 0.005
 
 # Add any global variables here
 speed = 0.0  # The current speed of the car
 angle = 0.0  # The current angle of the car's wheels
 counter = 0
-currentState = State.Wandering
+currentState = State.Go
 width = 0
 height = 0
-Speed_PID = pidcontroller.PID(0.2, 0.1, 0.5)
-Angle_PID = pidcontroller.PID(1, 0.1, 0.5)
+Speed_PID = pidcontroller.PID(0.01, 0.1, 0.1)
+Angle_PID = pidcontroller.PID(10, 1, 0.5)
 
 ########################################################################################
 # Functions
 ########################################################################################
 
+
 def getWall(depth_image):
     global width
     global height
     """ return distance to wall, horizontal target"""
-    y = depth_image[height // 3 - 10, height//3 + 10, width//3:2*width//3]
+    y = np.mean(
+        depth_image[height // 3 - 30 : height // 3 + 30, width // 3 : 2 * width // 3],
+        axis=0,
+    )
+    x = np.arange(width // 3, 2 * width // 3)
+    z = np.poly1d(np.polyfit(x, y, 1))
+
+    dist = z(width // 2)
+    slope = z[1]
+
+    return dist, slope
 
 
 def start():
@@ -79,10 +92,12 @@ def update():
     """
     # TODO: Park the car 20 cm away from the closest wall with the car directly facing
     # the wall
-    color_image = rc.camera.get_color_image()
+
     depth_image = rc.camera.get_depth_image()
 
-    contour_center, coneDist = getCone(color_image, depth_image)
+    dist, slope = getWall(depth_image)
+
+    # Sprint(dist, " ", slope)
 
     global currentState
     global counter
@@ -90,46 +105,56 @@ def update():
     global angle
 
     # FSM
-    if currentState == State.Wandering:
-        speed = 1
-        angle = 1 - counter / 10
-        if angle > 0.5:
-            angle = 0.5
-        if contour_center is not None:  # found cone
-            currentState = State.Go_To_Cone
-    if currentState == State.Go_To_Cone:  # cone is in sight
-        if contour_center is None:  # cone dissapeared
-            counter = 0
-            currentState = State.Wandering
-        elif abs(coneDist - TARGET_DIST) < DIST_THRESHHOLD:  # cone 30cm away
-            currentState = State.Stop
-        else:
-            angleError = (contour_center[1] - rc.camera.get_width() // 2) / (
-                rc.camera.get_width() // 2
-            )
-            angle = np.clip(Angle_PID.update(angleError, rc.get_delta_time()), -1, 1)
-            if coneDist > PID_DIST_THRESHHOLD:
-                speed = 1
+    if currentState == State.Go:  # cone is in sight
+        park = True
+        if abs(dist - TARGET_DIST) > DIST_THRESHHOLD:  # control speed only
+            park = False
+            if dist > PID_DIST_THRESHHOLD:
+                speed = 0.5
             else:
-                speedError = coneDist - TARGET_DIST
+                speedError = dist - TARGET_DIST
                 speed = np.clip(
                     Speed_PID.update(speedError, rc.get_delta_time()), -1, 1
                 )
+        else:
+            speed = 0
+        if abs(slope) > SLOPE_THRESHHOLD:  # control angle
+            park = False
+            if speed == 0 or (
+                dist < 60 and abs(slope) > 0.1
+            ):  # good distance but angle is bad
+                counter = 0
+                currentState = State.moveBackwards
+            else:
+                angleError = -slope
+                angle = np.clip(
+                    Angle_PID.update(angleError, rc.get_delta_time()), -1, 1
+                )
+        else:
+            angle = 0
+        if park:
+            currentState = State.Stop
     if currentState == State.Stop:
         speed = 0
         angle = 0
-        if contour_center is None:  # cone dissapeared
-            counter = 0
-            currentState = State.Wandering
-        elif abs(coneDist - TARGET_DIST) > DIST_THRESHHOLD:  # cone moved
-            currentState = State.Go_To_Cone
+        if (
+            abs(slope) > SLOPE_THRESHHOLD or abs(dist - TARGET_DIST) > DIST_THRESHHOLD
+        ):  # cone moved
+            currentState = State.Go
+    if currentState == State.moveBackwards:  # move backwards for 1 second
+        if counter < 1:
+            speed = -1
+            angle = 0
+        elif counter < 2:
+            speed = 0
+            angle = 0
+        else:
+            currentState = State.Go
+
+    # print(dist, " ", slope, " ", currentState)
 
     counter += rc.get_delta_time()
     rc.drive.set_speed_angle(speed, angle)
-
-    # TODO: Park the car 30 cm away from the closest orange cone.
-    # Use both color and depth information to handle cones of multiple sizes.
-    # You may wish to copy some of your code from lab2b.py
 
 
 def update_slow():

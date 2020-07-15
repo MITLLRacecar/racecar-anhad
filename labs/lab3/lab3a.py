@@ -26,12 +26,15 @@ import filterOnePole
 rc = racecar_core.create_racecar()
 
 # Add any global variables here
-MIN_DISTANCE = 20
+MIN_DISTANCE = 80
 empty_image = 0
 OBJECT_THRESHHOLD = 50
 CUTOFF_FREQUENCY = 20
 LowpassFilter = None
 test = 0
+counter = 0
+width = rc.camera.get_width()
+height = rc.camera.get_height()
 ########################################################################################
 # Functions
 ########################################################################################
@@ -39,7 +42,11 @@ test = 0
 
 def distEncoder(a, maxv):
     """nonlinear float to uint8"""
-    return 255.0 * (1.0 - (1.0 - a / maxv) ** 3.0)
+    b = 255.0 * (1.0 - (1.0 - a / maxv) ** 3.0)
+    if np.isnan(b):
+        return 0
+    else:
+        return b
 
 
 vDistEncoder = np.vectorize(distEncoder, [np.uint8], excluded=["maxv"])
@@ -51,6 +58,11 @@ def start():
     """
     global empty_image
     empty_image = cv.imread("Empty.png", cv.IMREAD_GRAYSCALE)
+
+    global width
+    global height
+    width = rc.camera.get_width()
+    height = rc.camera.get_height()
 
     # print(empty_image[:, 40])
     # a = rc.camera.get_depth_image()[::8, ::8]
@@ -90,7 +102,7 @@ def floorRemoval(depth_image):
 
     shift_x = 0
     shift_y = 0
-    shift_x = 20
+    shift_x = 10
     mostzeros = 0
     brightness_adjusted = np.zeros_like(empty_image)
 
@@ -111,8 +123,8 @@ def floorRemoval(depth_image):
                 shift_y = y
                 shift_z = z
 
-    # shift_y = 10
-    # shift_z = 0
+    shift_y = 10
+    shift_z = 0
 
     brightness_adjusted[41:] = np.clip(empty_image[41:] + shift_z, 0, 255)
     mostzeros = -1
@@ -140,11 +152,11 @@ def floorRemoval(depth_image):
         # for i in range(0, height):
         #    print(out[i, width // 2], end=" ")
 
-    lowpass = LowpassFilter.input(out, rc.get_delta_time())
+    lowpass = LowpassFilter.input(depth_image, rc.get_delta_time())
     lowpass[lowpass < 1] = 0
     lowpass[out == 0] = 0
 
-    print(shift_x, " ", shift_y, " ", shift_z)
+    # print(shift_x, " ", shift_y, " ", shift_z)
 
     return lowpass
 
@@ -180,14 +192,32 @@ def update():
 
     # Calculate the distance of the object directly in front of the car
     depth_image = rc.camera.get_depth_image()[::8, ::8]
-    depth_image = floorRemoval(depth_image)
+    # depth_image = floorRemoval(depth_image)
     # TODO: REMOVE SUBSAMPLING ON IRL RACECAR
-    center_distance = rc_utils.get_depth_image_center_distance(depth_image)
+    global width
+    global height
+    min_image = np.copy(depth_image[0 : height // 16])
+    # cv.imshow("a", min_image)
+    min_image = min_image[np.nonzero(min_image)]
+
+    if min_image.size == 0:
+        center_distance = 0
+    else:
+        center_distance = np.min(min_image)
+        print(center_distance)
+
+    global counter
 
     # TODO (warmup): Prevent forward movement if the car is about to hit something.
-    if center_distance < MIN_DISTANCE:
+    if center_distance < MIN_DISTANCE and center_distance > 0:
         if speed > 0 and not rc.controller.is_down(rc.controller.Button.RB):
-            speed = 0
+            if counter < 0.5:
+                speed = -1
+                counter += rc.get_delta_time()
+            else:
+                speed = 0
+    else:
+        counter = 0
     # Allow the user to override safety stop by holding the right bumper.
 
     # Use the left joystick to control the angle of the front wheels
