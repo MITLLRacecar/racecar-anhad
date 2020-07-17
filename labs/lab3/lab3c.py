@@ -141,7 +141,7 @@ def update():
             abs(slope) > SLOPE_THRESHHOLD or abs(dist - TARGET_DIST) > DIST_THRESHHOLD
         ):  # cone moved
             currentState = State.Go
-    if currentState == State.moveBackwards:  # move backwards for 1 second
+    if currentState == State.moveBackwards:  # move backwards for 2 seconds
         if counter < 1:
             speed = -1
             angle = 0
