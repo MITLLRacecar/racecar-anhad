@@ -28,6 +28,9 @@ rc = racecar_core.create_racecar()
 # The (min, max) degrees to consider when measuring forward and rear distances
 FRONT_WINDOW = (-10, 10)
 REAR_WINDOW = (170, 190)
+MIN_DISTANCE = 75
+
+counter = 0
 
 ########################################################################################
 # Functions
@@ -55,6 +58,9 @@ def start():
         "   B button = print forward and back distances"
     )
 
+    global counter
+    counter = 0
+
 
 def update():
     """
@@ -71,8 +77,35 @@ def update():
     _, forward_dist = rc_utils.get_lidar_closest_point(scan, FRONT_WINDOW)
     _, back_dist = rc_utils.get_lidar_closest_point(scan, REAR_WINDOW)
 
+    # print(forward_dist)
+
     # TODO (warmup): Prevent the car from hitting things in front or behind it.
     # Allow the user to override safety stop by holding the left or right bumper.
+
+    global counter
+
+    if forward_dist < MIN_DISTANCE:
+        if speed > 0 and not (
+            rc.controller.is_down(rc.controller.Button.RB)
+            or rc.controller.is_down(rc.controller.Button.LB)
+        ):
+            if counter < 0.5:
+                speed = -1
+                counter += rc.get_delta_time()
+            else:
+                speed = 0
+    elif back_dist < MIN_DISTANCE:
+        if speed < 0 and not (
+            rc.controller.is_down(rc.controller.Button.RB)
+            or rc.controller.is_down(rc.controller.Button.LB)
+        ):
+            if counter < 0.5:
+                speed = 1
+                counter += rc.get_delta_time()
+            else:
+                speed = 0
+    else:
+        counter = 0
 
     # Use the left joystick to control the angle of the front wheels
     angle = rc.controller.get_joystick(rc.controller.Joystick.LEFT)[0]
