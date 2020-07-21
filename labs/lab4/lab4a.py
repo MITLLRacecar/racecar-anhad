@@ -27,6 +27,8 @@ import math
 
 rc = racecar_core.create_racecar()
 
+TURN_ANGULAR_VELOCITY_LIMIT = 4
+
 ################################################################################
 # Functions
 ################################################################################
@@ -65,6 +67,16 @@ def update():
     angle = rc.controller.get_joystick(rc.controller.Joystick.LEFT)[0]
 
     # TODO (warmup): Prevent the car from turning too abruptly using the IMU
+
+    angle = rc_utils.clamp(
+        (
+            (TURN_ANGULAR_VELOCITY_LIMIT - abs(rc.physics.get_angular_velocity()[1]))
+            * angle
+            / TURN_ANGULAR_VELOCITY_LIMIT
+        ),
+        -1,
+        1,
+    )
 
     rc.drive.set_speed_angle(speed, angle)
 
