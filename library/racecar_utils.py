@@ -2,7 +2,7 @@ import cv2 as cv
 import numpy as np
 from typing import *
 from nptyping import NDArray
-from enum import Enum
+from enum import Enum, IntEnum
 
 
 class ColorBGR(Enum):
@@ -667,7 +667,7 @@ def get_lidar_average_distance(
     scan: NDArray[Any, np.float32], angle: float, window_angle: float = 4
 ) -> float:
     """
-    Finds the average distance to obstacles in front of the car.
+    Finds the average distance of the object at a particular angle relative to the car.
 
     Args:
         scan: The samples from a LIDAR scan
@@ -820,3 +820,108 @@ def stack_images_vertical(
     ), f"image_0 width ({image_0.shape[1]}) must be the same as image_1 width ({image_1.shape[1]})."
 
     return np.vstack((image_0, image_1))
+
+
+def get_ar_markers(
+    color_image: NDArray[(Any, Any, 3), np.uint8]
+) -> Tuple[List[NDArray[(1, 4, 2), np.int32]], Optional[NDArray[(Any, 1), np.int32]]]:
+    """
+    Finds AR markers in a image.
+
+    Args:
+        color_image: A color image.
+
+    Returns:
+        A list of each AR marker's four corners clockwise and an array of the AR marker ids.
+
+    Example::
+        color_image = copy.deepcopy(rc.camera.get_color_image())
+
+        # detect and draw AR markers
+        corners, ids = racecar_utils.get_ar_markers(color_image)   
+        color_image = racecar_utils.draw_ar_markers(color_image, corners, ids)
+
+        rc.display.show_color_image(color_image)
+    """
+    corners, ids, _ = cv.aruco.detectMarkers(
+        color_image,
+        cv.aruco.Dictionary_get(cv.aruco.DICT_6X6_250),
+        parameters=cv.aruco.DetectorParameters_create(),
+    )
+    return (corners, ids)
+
+
+def draw_ar_markers(
+    color_image: NDArray[(Any, Any, 3), np.uint32],
+    corners: List[NDArray[(1, 4, 2), np.int32]],
+    ids: NDArray[(Any, 1), np.int32],
+    color: Tuple[int, int, int] = ColorBGR.green.value
+) -> NDArray[(Any, Any, 3), np.uint8]:
+    """
+    Draw AR markers in a image.
+
+    Args:
+        color_image: A color image.
+        corners: A list of ndarrays with AR marker corners.
+        ids: A list of AR marker ids.
+
+    Note:
+        The length of corners must be the same as the first dimension of ids.
+        The original image is modified.
+
+    Returns:
+        A list of each AR marker's four corners clockwise and an array of the ar marker ids.
+
+    Example::
+        color_image = copy.deepcopy(rc.camera.get_color_image())
+
+        # detect and draw AR markers
+        corners, ids = racecar_utils.get_ar_markers(color_image)   
+        color_image = racecar_utils.draw_ar_markers(color_image, corners, ids)
+
+        rc.display.show_color_image(color_image)
+    """
+    return cv.aruco.drawDetectedMarkers(color_image, corners, ids, color)
+
+
+class Direction(IntEnum):
+    """
+    AR marker direction
+    """
+    UP = 0
+    RIGHT = 1
+    DOWN = 2
+    LEFT = 3
+
+
+def get_ar_direction(ar_corners: NDArray[(1, 4, 2), np.int32]) -> Direction:
+    """
+    Return the direction of an AR marker.
+
+    Args:
+        ar_corners: An array of the AR marker's corner coordinates.
+
+    Note:
+        The first dimension of the input array is 1.
+
+    Returns:
+        The direction the AR markers faces.
+
+    Example::
+        color_image = copy.deepcopy(rc.camera.get_color_image())
+
+        # detect AR marker and print direction
+        corners, ids = racecar_utils.get_ar_markers(color_image)   
+        if len(corners) > 0:
+            print(get_ar_direction(corners[0]))
+    """
+    if ar_corners[0][0][1] > ar_corners[0][2][1]:
+        if ar_corners[0][0][0] > ar_corners[0][2][0]:
+            return Direction.DOWN
+        else:
+            return Direction.LEFT
+    else:
+        if ar_corners[0][0][0] > ar_corners[0][2][0]:
+            return Direction.RIGHT
+        else:
+            return Direction.UP
