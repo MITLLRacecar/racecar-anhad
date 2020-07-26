@@ -85,7 +85,7 @@ def update():
         highlighted_samples=np.concatenate([RightL, LeftL]),
     )
 
-    speed = 0.8
+    speed = 0.5
 
     angleError = TARGET_ANGLE - (rightWallAngle + leftWallAngle) / 2
     distError = (rightWallDist + leftWallDist) / 2
