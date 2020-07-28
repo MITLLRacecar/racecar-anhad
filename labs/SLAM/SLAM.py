@@ -14,7 +14,8 @@ import sys
 import cv2 as cv
 import numpy as np
 from enum import IntEnum
-import scipy.interpolate as interp
+
+# import scipy.interpolate as interp
 
 sys.path.insert(0, "../../library")
 import racecar_core
@@ -46,7 +47,9 @@ oldpoints = None
 slam_map = None
 slam_T = np.array([0.0, 0.0])
 slam_R = np.identity(2)
-origin = np.array([0.0, 0.0])  # location of origin on slam_map
+origin = np.array(
+    [VIS_RADIUS, VIS_RADIUS], dtype=float
+)  # location of origin on slam_map
 
 
 class Color(IntEnum):
@@ -61,7 +64,7 @@ class Color(IntEnum):
     # Red2 = 7
 
 
-NUM_ICP_POINTS = 600
+NUM_ICP_POINTS = 800
 
 HSV_RANGE = [None for i in range(len(Color))]
 # Colors, stored as a pair (hsv_min, hsv_max)
@@ -115,7 +118,7 @@ def start():
     """
     # Have the car begin at a stop
     rc.drive.stop()
-    rc.drive.set_max_speed(0.1)
+    rc.drive.set_max_speed(0.05)
 
     global width
     global height
@@ -132,7 +135,7 @@ def start():
     slam_map = None
     slam_T = np.array([0.0, 0.0])
     slam_R = np.identity(2)
-    origin = np.array([0.0, 0.0])
+    origin = np.array([VIS_RADIUS, VIS_RADIUS], dtype=float)
 
     # Print start message
     print(">> SLAM")
@@ -221,9 +224,13 @@ def update():
 
         try:
             M = icp.icp(oldpoints, icp_points)
-        except:
+        except Exception as e:
+            print("ICP Error! ", e)
             M = np.array([[1, 0, 0], [0, 1, 0]])
         # print("R:", R)
+
+        i = ts.topDown2Vis(oldpoints, (VIS_RADIUS, VIS_RADIUS))
+        vis_image[i] = BGR[Color.Red]
     else:
         slam_map = np.zeros((2 * VIS_RADIUS, 2 * VIS_RADIUS, 3), np.uint8, "C")
         M = np.array([[1, 0, 0], [0, 1, 0]])
@@ -234,62 +241,67 @@ def update():
     slam_R = np.matmul(M[:, 0:2], slam_R)
 
     global slam_T
-
     if np.max(np.absolute(M[:, 2])) < 5:
         slam_T += M[:, 2]
 
-    # slam_T = [x, y]
+    # apply rotation to current points in top down space
+    p = np.matmul(slam_R, scan_xy)
+    valid_idx = np.argwhere((np.absolute(p) < VIS_RADIUS).all(axis=0)).flatten()
 
-    t = np.transpose([slam_T]) + origin
+    i = np.matmul(M[:, 0:2], icp_points)
+    i[1] = np.negative(i[1])  # invert y axis
+    i += [[VIS_RADIUS + M[0, 2]], [VIS_RADIUS + M[1, 2]]]
+    v = np.argwhere(np.logical_and(i > 0, i < VIS_RADIUS * 2).all(axis=0)).flatten()
+    i = np.flip(np.take(i, v, axis=1).astype(int), axis=0)
+    vis_image[(tuple(i[0]), tuple(i[1]))] = BGR[Color.Blue]
 
-    t = ts.topDown2Vis(t, (VIS_RADIUS, VIS_RADIUS))
+    # convert everything to vis space
+    global origin
+    # slam_T = [x, y] car location in top down space
+    # t = [[y], [x]], car location in vis space
+    t = [[origin[1] - slam_T[0]], [origin[0] - slam_T[1]]]
 
+    # draw car location
     if len(t[0]) > 0:
-        rc_utils.draw_circle(slam_map, (t[0][0], t[1][0]), BGR[Color.Yellow], 2)
+        rc_utils.draw_circle(
+            slam_map, (int(t[1][0]), int(t[0][0])), BGR[Color.Yellow], 2
+        )
 
-    # apply transformation to current points
-    # draw_points[0:2]
-    # p = np.matmul(slam_R, scan_xy)
+    # p = [[y, y, y], [x, x, x]] icp points in vis space
+    p[1] = np.negative(p[1])  # invert y axis
+    p = np.flip(np.take(p, valid_idx, axis=1).astype(int), axis=0) + t
+    # [[origin[1]], [origin[0]]]
 
-    # maxx = np.maximum(p[0]) + t[0]
-    # minx = np.minimum(p[0]) + t[0]
-    # maxy = np.maximum(p[1]) + t[1]
-    # miny = np.minimum(p[1]) + t[1]
+    maxy, maxx = np.amax(p, axis=1).astype(int) + 1
+    miny, minx = np.amin(p, axis=1).astype(int)
+    # minx = int(np.amin(p[0]))
+    # miny = int(np.amin(p[1]))
 
-    # if maxx > slam_map:
+    # s = [y, x] dimensions of current map
+    s = slam_map.shape
 
-    # if maxx
+    if maxx > s[1] or maxy > s[0]:
+        z = np.zeros((max(maxy, s[0]), max(maxx, s[1]), 3))  # make room for new points
+        z[0 : s[0], 0 : s[1]] = slam_map
+        slam_map = np.copy(z)
+    elif minx < 0 or miny < 0:
+        shiftx = max(-minx, 0)
+        shifty = max(-miny, 0)
+        origin += [shiftx, shifty]  # shift origin, origin is in top down space
+        z = np.zeros((s[0] + shifty, s[1] + shiftx, 3))  # make room for new points
+        z[shifty : s[0] + shifty, shiftx : s[1] + shiftx] = slam_map
+        slam_map = np.copy(z)
+        p += np.array([[shifty], [shiftx]])  # shift points, p is in vis space
 
-    # valid_idx = np.argwhere((np.absolute(points) < VIS_RADIUS).all(axis=0)).flatten()
-    # return (
-    #    tuple(center[1] - np.take(points[1], valid_idx).astype(int)),
-    #    tuple(np.take(points[0], valid_idx).astype(int) + center[0]),
-    # )
+    p = p.astype(int)
 
-    # maxx = np.max
+    p = (tuple(p[0]), tuple(p[1]))
 
-    # p = ts.topDown2Vis(p, slam_T)
+    slam_map[p] = BGR[Color.White]  # np.take(BGR, draw_points[2].astype(int))
 
-    # p = np.array(p, dtype=int)
-
-    # valid_idx = np.argwhere(
-    #    np.logical_and(p > 0, p < VIS_RADIUS * 2).all(axis=0)
-    # ).flatten()
-
-    # p = p[:, valid_idx]
-
-    # print(BGR[draw_points[2].astype(int)])
-
-    # slam_map[p] = BGR[Color.White]  # np.take(BGR, draw_points[2].astype(int))
-
-    # if R is None:
-
-    i = ts.topDown2Vis(icp_points, (VIS_RADIUS, VIS_RADIUS))
-    if i is not None:
-        vis_image[i] = BGR[Color.White]
-
-    # dot in middle for car
-    # rc_utils.draw_circle(vis_image, (VIS_RADIUS, VIS_RADIUS), BGR[Color.Yellow], 2)
+    # i = ts.topDown2Vis(icp_points, (VIS_RADIUS, VIS_RADIUS))
+    # if i is not None:
+    #    vis_image[i] = BGR[Color.White]
 
     speed = 0
     angle = 0
@@ -299,10 +311,10 @@ def update():
 
     speed, angle = manualControl()
 
-    i = rc_utils.stack_images_vertical(slam_map, vis_image)
+    # i = rc_utils.stack_images_vertical(slam_map, vis_image)
 
-    rc.display.show_color_image(i)
-    # rc.display.show_color_image(vis_image)
+    # rc.display.show_color_image(slam_map)
+    rc.display.show_color_image(vis_image)
     # rc.display.show_depth_image(depth_image)
 
     rc.drive.set_speed_angle(speed, angle)

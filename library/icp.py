@@ -46,7 +46,7 @@ def is_converge(Tr, scale):
     )
 
 
-def icp(d1, d2, max_iterate=100):
+def icp(d1, d2, max_iterate=200):
     t = time.time()
     src = np.array([d1.T], copy=True).astype(np.float32)
     dst = np.array([d2.T], copy=True).astype(np.float32)
@@ -93,6 +93,8 @@ def icp(d1, d2, max_iterate=100):
 
         if is_converge(T, scale):
             break
+    else:
+        print("ICP failed to converge!")
 
     print("ICP Took: ", time.time() - t)
     return Tr[0:2]
