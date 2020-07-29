@@ -36,10 +36,15 @@ old_challenge = None
 cur_challenge = None
 targetFilter = filterOnePole.Filter(filterOnePole.Type.LOWPASS, 1, width // 2)
 
+ts.num_samples = rc.lidar.get_samples()
+ts.VIS_RADIUS = 300
+ts.width = width
+
 # Add any global variables here
 speed = 0.0
 angle = 0.0
 counter = 0
+cone_count = 0
 
 MIN_CONTOUR = 30
 MIN_CONTOUR_AREA = 700
@@ -340,16 +345,20 @@ def start():
     global cur_conestate
     global old_challenge
     global ar_counter
+    global counter
+    global cone_count
+    counter = 0
     ar_counter = 0
+    cone_count = 0
     cur_challenge = Challenge.ManualControl
     cur_conestate = ConeState.DRIVE
-    old_challenge = Challenge.Lane
+    old_challenge = Challenge.Wall
     """
     This function is run once every time the start button is pressed
     """
     # Have the car begin at a stop
     rc.drive.stop()
-    rc.drive.set_max_speed(0.5)
+    rc.drive.set_max_speed(1)
 
     global width
     global height
@@ -399,6 +408,7 @@ def update():
 
     if cur_challenge == Challenge.Line:
         # Determine largest contour
+        speed = 0.25
         contour_center, current_color = update_contour(
             [Color.Red, Color.Green, Color.Blue], CROP_FLOOR, color_image
         )
@@ -410,7 +420,7 @@ def update():
             cur_challenge = Challenge.Wall
 
     elif cur_challenge == Challenge.Lane:
-        speed = 1
+        speed = 0.5
         angle = 0
         mask = cv.bitwise_or(
             cv.inRange(
@@ -491,14 +501,14 @@ def update():
             else:
                 print("No left lines")
                 drawLines(right_lines, color_image, Color.Red)
-                speed = 0.3
+                speed = 0.15
                 angle = -1
                 # hard left
         else:
             drawLines(left_lines, color_image, Color.Green)
             if len(right_lines) == 0:
                 print("No right lines")
-                speed = 0.3
+                speed = 0.15
                 angle = 1
                 # hard right
             else:
@@ -530,19 +540,38 @@ def update():
             color_image, depth_image
         )  # color: False = Blue, True = Red
         # failed to recognize cone: contour_center = None, contour_center_distance = None, color = False/True
-        corners, ids = rc_utils.get_ar_markers(color_image)
-        if ids is not None:
-            ar_counter += rc.get_delta_time()
-            if ar_counter > 2:
+        # corners, ids = rc_utils.get_ar_markers(color_image)
+        # if ids is not None and cone_count == 10:
+        #     angle = 0
+        #     ar_counter += rc.get_delta_time()
+        #     if ar_counter > 2:
+        #         cur_challenge = Challenge.Line
+        #         cone_count = 0
+        angle = 0
+        if cone_count == 10:
+            cur_conestate = ConeState.TRANSITION
+            if counter < 1.4:
+                angle = 1
+            elif counter > 4:
                 cur_challenge = Challenge.Line
-        speed = 1
+                cone_count = 0
+            counter += rc.get_delta_time()
+
+        speed = 0.25
 
         # States
-        if cur_conestate == ConeState.DRIVE:
+        if cur_conestate == ConeState.DRIVE and cone_count < 10:
             if contour_center is not None:
-                angle = rc_utils.remap_range(
-                    contour_center[1], 0, rc.camera.get_width(), -1, 1
+                # rc_utils.draw_circle(color_image, contour_center)
+                angle = rc_utils.clamp(
+                    rc_utils.remap_range(
+                        contour_center[1], 0, rc.camera.get_width(), -1, 1
+                    ),
+                    -1,
+                    1,
                 )
+                if cone_count == 2:
+                    angle = 0.85
                 if 0 < contour_center_distance < TURN_THRESHOLD:
                     if color == Color.Red:
                         cur_conestate = ConeState.RED
@@ -551,23 +580,45 @@ def update():
                         cur_conestate = ConeState.BLUE
                         counter = 0
         elif cur_conestate == ConeState.RED:
-            if counter < 0.2:
+            if counter < 0.5:
                 angle = 1
-            elif contour_center is not None and Color == Color.Blue:
+            elif contour_center is not None and color == Color.Blue:
                 cur_conestate = ConeState.DRIVE
+                cone_count += 1
+            elif cone_count == 9 and (
+                contour_center_distance > TURN_THRESHOLD or contour_center_distance == 0
+            ):
+                cone_count += 1
             else:
                 angle = -1
             counter += rc.get_delta_time()
-        else:
-            if counter < 0.2:
+        elif cur_conestate == ConeState.BLUE:
+            if counter < 0.5:
                 angle = -1
-            elif contour_center is not None and Color == Color.Red:
+            elif contour_center is not None and color == Color.Red:
                 cur_conestate = ConeState.DRIVE
+                cone_count += 1
+            elif cone_count == 9 and (
+                contour_center_distance > TURN_THRESHOLD or contour_center_distance == 0
+            ):
+                cone_count += 1
             else:
                 angle = 1
             counter += rc.get_delta_time()
 
     elif cur_challenge == Challenge.Wall:
+        # AR tag
+        # corners = rc_utils.get_ar_markers(color_image)
+        # if corners is not None:
+        #    orientation = rc_utils.get_ar_direction(corners[0][0])
+        #    if orientation == 3:  # Left
+        #        if counter < 1:
+        #            angle = -1
+        #    elif orientation == 1:
+        #        if counter < 1:
+        #            angle = 1
+        #    counter += rc.get_delta_time()
+
         rightWallDist, rightWallAngle, RightL = getWall(scan, 50, 130)
         leftWallDist, leftWallAngle, LeftL = getWall(scan, 250, 310)
 
@@ -583,7 +634,7 @@ def update():
             highlighted_samples=np.concatenate([RightL, LeftL]),
         )
 
-        speed = 0.5
+        speed = 0.25
 
         angleError = TARGET_ANGLE - (rightWallAngle + leftWallAngle) / 2
         distError = (rightWallDist + leftWallDist) / 2
@@ -597,8 +648,9 @@ def update():
 
         if getCone(color_image, depth_image) is None:
             cur_challenge = Challenge.Line
+            counter = 0
 
-    rc.display.show_color_image(color_image)
+    # rc.display.show_color_image(color_image)
     rc.drive.set_speed_angle(speed, angle)
 
 
